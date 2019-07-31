@@ -5,7 +5,7 @@ from django.contrib.auth.models import User
 from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
 from django.db.models import Max
-
+from django.forms.models import model_to_dict
 import boto3, mimetypes, os
 from django.conf import settings
 
@@ -409,6 +409,38 @@ class Activationproject(models.Model):
 
     
     
+    
+    
+    
+    def get_steps(self, search_term = '', start_index = 0, end_index = 0, steps_to_show = 10, user = None):
+    
+    
+        steplist = []
+        
+        steps = Step.objects.filter(project = self).prefetch_related('step_comments', 'step_likes')
+    
+        if(len(search_term) > 0):
+            steps = steps.filter(topic__icontains=search_term)
+        steps = steps.order_by('-step_taken')[:steps_to_show]
+            
+            
+        
+        i = self.step_count
+        for step in steps:
+            
+            stepelement = model_to_dict(step)
+            stepelement['index'] = i
+            i = i - 1
+            
+            stepelement['comments'] = step.get_commentlist(prefetched_comments = step.step_comments.all())
+            stepelement['likers'] = step.get_likers(prefetched_likers = step.step_likes.all())
+            
+            steplist.append(stepelement)
+    
+    
+        return steplist
+    
+    
 
 
 class Step(models.Model):
@@ -458,10 +490,14 @@ class Step(models.Model):
         
         
         
-    def get_commentlist(self):
+    def get_commentlist(self, prefetched_comments = None):
         
         kommenttilista = []
-        kommentit = Comment.objects.filter(step = self).select_related('user').order_by('-date')
+        
+        if(prefetched_comments):
+            kommentit = prefetched_comments
+        else:
+            kommentit = Comment.objects.filter(step = self).select_related('user').order_by('-date')
                 
         for kommentti in kommentit:
             objekti = {}
@@ -493,10 +529,16 @@ class Step(models.Model):
         return kommenttilista
     
     
-    def get_likers(self):
+    def get_likers(self, prefetched_likers = None):
         
-        likers = []
-        for liker in self.step_likes.all().order_by('-date'):
+        likerlist = []
+        
+        if(prefetched_likers):
+            likers = prefetched_likers
+        else:
+            likers = self.step_likes.all().order_by('-date')
+        
+        for liker in likers:
             likerElement = {}
             likerElement['id'] = liker.id
             likerElement['date'] = liker.date
@@ -508,10 +550,11 @@ class Step(models.Model):
             
             likerElement['liker_avatar_s3_url'] = liker.user.avatar_s3_url
             likerElement['liker_url_token'] = liker.user.url_token
+            likerElement['liker_id'] = liker.user.id
             
-            likers.append(likerElement)
+            likerlist.append(likerElement)
             
-        return likers
+        return likerlist
     
     
     
