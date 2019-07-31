@@ -1,0 +1,5 @@
+.settings
+.project
+.pydevproject
+/projektikansio/settings.py
+**/__pycache__
