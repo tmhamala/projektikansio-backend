@@ -3,7 +3,7 @@
 from django.contrib.auth import authenticate
 
 
-from .models import  Registereduser, Activationproject, Notification, JWTAuthenticationToken
+from .models import  Registereduser, Project, Notification, JWTAuthenticationToken
 from datetime import datetime
 from django.contrib.auth.models import User
 from django.db.models import Max
@@ -21,9 +21,8 @@ from django.utils.encoding import smart_str
 from django.conf import settings
 from jose import jwt
 
-
-
-
+from django.db import connection
+from .general_functions import make_projectlist, make_userobject
 
 
 
@@ -269,7 +268,8 @@ def profile(request):
         if(not authorization_ok):
             return Response({'error': True, 'error_message': 'Authorization error'})
         
-        userdata = user_instance.userobject()
+        userdata = make_userobject(user_instance)
+        
         return Response({'error': False, 'error_message': '', 'userdata': userdata})
 
 
@@ -533,7 +533,7 @@ def delete_account(request):
             return Response(accountDeleteResponse)
         
         
-        kayttajanProjektit = Activationproject.objects.filter(user = user_instance)
+        kayttajanProjektit = Project.objects.filter(user = user_instance)
         
         for projekti in kayttajanProjektit:
             
@@ -564,21 +564,12 @@ def check_authorization(request):
     
     try:
         token_header = request.META['HTTP_AUTHORIZATION'].replace('Bearer ', '', 1)
-        tokenobject = JWTAuthenticationToken.objects.get(token = token_header)
+        tokenobject = JWTAuthenticationToken.objects.filter(token = token_header).select_related('user').first()
         token_payload = jwt.decode(tokenobject.token, settings.JWT_SECRET, algorithms=['HS256'])
         user_id = token_payload['user_id']
-        user = Registereduser.objects.get(id = user_id)
-        return True, user
+        return True, tokenobject.user
     except:
         return False, None
-
-
-
-
-
-
-
-
 
 
 

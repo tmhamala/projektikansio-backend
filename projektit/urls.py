@@ -1,17 +1,13 @@
 # -*- coding: utf-8 -*-
 
-'''
-Created on 22.5.2015
 
-@author: Tomi
-'''
 from django.conf.urls import url
 from rest_framework import routers
 
 
 
 from . import views
-from projektit import profile, steps, projects, users
+from projektit import projects, profile, steps,  users
 
 
 urlpatterns = [

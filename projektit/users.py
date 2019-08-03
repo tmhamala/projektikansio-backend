@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 
-from .models import  Registereduser, Activationproject
+from .models import  Registereduser, Project
 
 from django.db.models import Max
 
 from rest_framework.decorators import api_view, renderer_classes
 from rest_framework.response import Response
 from rest_framework.renderers import JSONRenderer
-
+from .general_functions import make_projectlist
 
 
 
@@ -20,11 +20,10 @@ def user(request, url_token):
         user = Registereduser.objects.get(url_token = url_token)
         
         projectlist = []
-        projects = Activationproject.objects.filter(user = user).annotate(latest_step_taken=Max('step__step_taken')).order_by('-latest_step_taken')
+        projects = Project.objects.filter(user = user).annotate(latest_step_taken=Max('step__step_taken')).order_by('-latest_step_taken')
         
               
-        for projekti in projects:
-            projectlist.append(projekti.listobject())
+        projectlist = make_projectlist(projects)
             
 
         userdata = {'error': False,

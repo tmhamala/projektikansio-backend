@@ -8,6 +8,10 @@ from django.db.models import Max
 from django.forms.models import model_to_dict
 import boto3, mimetypes, os
 from django.conf import settings
+#from .projects import make_projectlist
+from django.db.models.query import QuerySet
+from django.db.models import Prefetch
+
 
 
 class Registereduser(models.Model):
@@ -33,85 +37,7 @@ class Registereduser(models.Model):
     notifications_read = models.DateTimeField(default=datetime(1800, 1, 1))
     
     
-    def userobject(self):
 
-        user_object = {}
-        user_object['name'] = self.name
-        user_object['username'] = self.user.username
-        user_object['email'] = self.email
-        user_object['avatar_s3_url'] = self.avatar_s3_url
-        user_object['info'] = self.info
-        user_object['user_id'] = self.id
-        
-    
-        
-        projects = Activationproject.objects.filter(user = self).annotate(latest_step_taken=Max('step__step_taken')).order_by('-latest_step_taken')
-        
-        
-        projectlist = []
-        for project in projects:
-            projectlist.append(project.listobject())
-        
-        
-        user_object['projects'] = projectlist
-        
-        
-        notifications = []
-        new_notifications_count = 0
-        user_notifications = Notification.objects.filter(user = self).order_by('-date')[:20]
-        for notification in user_notifications:
-            
-            notificationelement = {}
-            
-            
-            if(notification.date > self.notifications_read):
-                notificationelement['new'] = True
-                new_notifications_count = new_notifications_count + 1
-            else:
-                notificationelement['new'] = False
-            
-            
-            if(notification.action_maker.name):
-                notificationelement['action_maker_name'] = notification.action_maker.name
-            else:
-                notificationelement['action_maker_name'] = notification.action_maker.user.username
-            
-            notificationelement['action_maker_url_token'] = notification.action_maker.url_token
-            notificationelement['action_maker_avatar_s3_url'] = notification.action_maker.avatar_s3_url
-            
-            if(notification.project):
-                notificationelement['project_name'] = notification.project.name
-                notificationelement['project_url_token'] = notification.project.url_token
-            else:
-                notificationelement['project_name'] = None
-                notificationelement['project_url_token'] = None
-                
-            if (notification.step):
-                notificationelement['step_topic'] = notification.step.topic
-                notificationelement['step_id'] = notification.step.id
-            else:
-                notificationelement['step_topic'] = None
-                notificationelement['step_id'] = None
-            
-            
-            notificationelement['date'] = notification.date
-            notificationelement['action'] = notification.action
-            notifications.append(notificationelement)
-            
-            
-        user_object['notifications'] = notifications
-        user_object['new_notifications_count'] = new_notifications_count
-        
-    
-    
-        if (self.user.username == 'admintomi'):
-            user_object['admin'] = True
-        else:
-            user_object['admin'] = False
-        
-    
-    
-        return user_object
         
     
     
@@ -170,13 +96,6 @@ class Registereduser(models.Model):
 
 
 
-
-
-
-
-
-
-
 class JWTAuthenticationToken(models.Model):
     
     user = models.ForeignKey(Registereduser)
@@ -187,7 +106,7 @@ class JWTAuthenticationToken(models.Model):
 
 
 
-class Activationproject(models.Model):
+class Project(models.Model):
     
     user = models.ForeignKey(Registereduser, null=True)
     
@@ -233,76 +152,7 @@ class Activationproject(models.Model):
     time_limit_days = models.IntegerField(null=True, default = 30)
     
     
-    
-    
-    def listobject(self):
-        
-        projektiobjekti = {}
-        projektiobjekti['name'] = self.name
-        projektiobjekti['id'] = self.id
-        projektiobjekti['description'] = self.description
 
-
-        projektiobjekti['project_owner_avatar'] = self.user.avatar_s3_url
-        projektiobjekti['like_count'] = self.like_count
-        projektiobjekti['latest_step_taken_isoformat'] = self.latest_step_taken
-        
-        try:
-            projektiobjekti['project_started_isoformat'] = self.first_step_taken
-        except:
-            projektiobjekti['project_started_isoformat'] = datetime(1800, 1, 1)
-        
-        if(self.user.name):
-            projektiobjekti['project_owner_name'] = self.user.name
-        else:
-            projektiobjekti['project_owner_name'] = self.user.user.username
-            
-            
-        if(self.certificated_root_project):
-            projektiobjekti['certificated_root_project'] = self.certificated_root_project.id
-            projektiobjekti['cover_photo_s3_url'] = self.certificated_root_project_cover_photo_s3_url
-        else:
-            projektiobjekti['certificated_root_project'] = None
-            projektiobjekti['cover_photo_s3_url'] = self.cover_photo_s3_url
-            
-        projektiobjekti['step_count'] = self.step_count
-        projektiobjekti['url_token'] = self.url_token
-        projektiobjekti['goal'] = self.goal
-        projektiobjekti['status'] = self.status
-        projektiobjekti['project_likes_allowed'] = self.project_likes_allowed
-    
-        
-        if(self.goal == 'numeric' and self.numeric_goal_unit != 'project_step'):
-            projektiobjekti['complete_percentage'] = self.numeric_percentage
-        if(self.goal == 'numeric' and self.numeric_goal_unit == 'project_step'):
-            projektiobjekti['complete_percentage'] = self.step_percentage    
-      
-        
-        
-        if(self.latest_step_taken):
-            
-            if(self.latest_step_taken.date() == datetime.now().date()):
-                projektiobjekti['last_update'] = self.latest_step_taken.strftime("Tänään klo %H:%M")
-            elif(self.latest_step_taken.date() == (datetime.now() - relativedelta(days = 1)).date()):
-                projektiobjekti['last_update'] = self.latest_step_taken.strftime("Eilen klo %H:%M")
-            elif(self.latest_step_taken.date() == (datetime.now() - relativedelta(days = 2)).date()):
-                projektiobjekti['last_update'] = self.latest_step_taken.strftime("Toissapäivänä klo %H:%M")
-            else:
-                projektiobjekti['last_update'] = self.latest_step_taken.strftime("%d.%m.%Y klo %H:%M")
-                
-        else:
-            projektiobjekti['last_update'] = None
-    
-    
-    
-        return projektiobjekti
-    
-    
-    
-    
-    
-    
-    
     
     def poista(self):
         
@@ -337,28 +187,33 @@ class Activationproject(models.Model):
     
     
     
-    def get_likers(self):
+    def get_likes(self, prefetched_likes = None):
         
         
-        likers = []
-        project_likers = ProjectLike.objects.filter(project = self)
-        for liker in project_likers:
-            likerElement = {}
-            likerElement['date'] = liker.date
-    
-            if(liker.user.name):
-                likerElement['liker_name'] = liker.user.name
+        likelist = []
+        
+        if(isinstance(prefetched_likes, QuerySet)):
+            likes = prefetched_likes
+        else:
+            likes = self.project_likes.all().prefetch_related('user').order_by('-date')
+        
+        for like in likes:
+            likeDict = {}
+            likeDict['id'] = like.id
+            likeDict['date'] = like.date
+        
+            if(like.user.name):
+                likeDict['liker_name'] = like.user.name
             else:
-                likerElement['liker_name'] = liker.user.user.username
+                likeDict['liker_name'] = "No name"
             
-            likerElement['liker_avatar'] = liker.user.avatar
-            likerElement['liker_url_token'] = liker.user.url_token
+            likeDict['liker_avatar_s3_url'] = like.user.avatar_s3_url
+            likeDict['liker_url_token'] = like.user.url_token
+            likeDict['liker_id'] = like.user.id
             
-            likers.append(likerElement)
-    
-    
-        return likers
-    
+            likelist.append(likeDict)
+            
+        return likelist
 
 
 
@@ -412,12 +267,20 @@ class Activationproject(models.Model):
     
     
     
-    def get_steps(self, search_term = '', start_index = 0, end_index = 0, steps_to_show = 10, user = None):
+    def get_steps(self, search_term = '', start_index = 0, end_index = 0, steps_to_show = 10):
     
+    
+        step_comments_qs = Comment.objects.prefetch_related('user')
+        step_likes_qs = Like.objects.prefetch_related('user')
     
         steplist = []
         
-        steps = Step.objects.filter(project = self).prefetch_related('step_comments', 'step_likes')
+        steps = Step.objects.filter(project = self).prefetch_related(
+            Prefetch('step_comments', queryset=step_comments_qs),
+            Prefetch('step_likes', queryset=step_likes_qs),
+            )
+                      
+
     
         if(len(search_term) > 0):
             steps = steps.filter(topic__icontains=search_term)
@@ -443,9 +306,62 @@ class Activationproject(models.Model):
     
 
 
+
+    def count_numeric_total(self):
+        
+        steps = Step.objects.filter(project = self)
+        
+        self.step_count = len(steps)
+        
+        try:
+            step_percentage = (self.step_count * 100) / self.numeric_goal
+            if(step_percentage < 0):
+                step_percentage = 0
+            if (step_percentage > 100):
+                step_percentage = 100   
+        except:
+            step_percentage = 0
+        
+        
+        count = 0
+        for step in steps:
+            if(step.numeric_value):
+                count = count + step.numeric_value
+        
+        self.numeric_total = count
+        
+        
+        try:
+            numeric_percentage = (self.numeric_total * 100) / self.numeric_goal
+            if(numeric_percentage < 0):
+                numeric_percentage = 0
+            if (numeric_percentage > 100):
+                numeric_percentage = 100   
+        except:
+            numeric_percentage = 0
+        
+        
+        
+        self.step_percentage = step_percentage
+        self.numeric_percentage = numeric_percentage
+        self.save()
+
+        return True
+
+
+
+
+
+
+
+
+
+
+
+
 class Step(models.Model):
     
-    project = models.ForeignKey(Activationproject)
+    project = models.ForeignKey(Project)
     
     topic = models.CharField(max_length=100, null=True)
     description = models.CharField(max_length=5000, null=True)
@@ -493,11 +409,12 @@ class Step(models.Model):
     def get_commentlist(self, prefetched_comments = None):
         
         kommenttilista = []
+
         
-        if(prefetched_comments):
+        if(isinstance(prefetched_comments, QuerySet)):
             kommentit = prefetched_comments
         else:
-            kommentit = Comment.objects.filter(step = self).select_related('user').order_by('-date')
+            kommentit = Comment.objects.filter(step = self).prefetch_related('user').order_by('-date')
                 
         for kommentti in kommentit:
             objekti = {}
@@ -507,7 +424,7 @@ class Step(models.Model):
             if(kommentti.user.name):
                 objekti['user_name'] = kommentti.user.name
             else:
-                objekti['user_name'] = kommentti.user.user.username
+                objekti['user_name'] = "No name"
             objekti['user_id'] = kommentti.user.id
             objekti['user_avatar_s3_url'] = kommentti.user.avatar_s3_url
             objekti['user_url_token'] = kommentti.user.url_token
@@ -533,10 +450,10 @@ class Step(models.Model):
         
         likerlist = []
         
-        if(prefetched_likers):
+        if(isinstance(prefetched_likers, QuerySet)):
             likers = prefetched_likers
         else:
-            likers = self.step_likes.all().order_by('-date')
+            likers = self.step_likes.all().prefetch_related('user').order_by('-date')
         
         for liker in likers:
             likerElement = {}
@@ -546,7 +463,7 @@ class Step(models.Model):
             if(liker.user.name):
                 likerElement['liker_name'] = liker.user.name
             else:
-                likerElement['liker_name'] = liker.user.user.username
+                likerElement['liker_name'] = "No name"
             
             likerElement['liker_avatar_s3_url'] = liker.user.avatar_s3_url
             likerElement['liker_url_token'] = liker.user.url_token
@@ -611,23 +528,16 @@ class Step(models.Model):
     
     
     
-    
-    
-class ProjectLike(models.Model):
-    
-    user = models.ForeignKey(Registereduser)
-    project = models.ForeignKey(Activationproject, related_name="project_likers")
-    
-    date = models.DateTimeField(auto_now_add=True)
 
 
 
 
-
-class StepLike(models.Model):
+class Like(models.Model):
     
     user = models.ForeignKey(Registereduser)
-    step = models.ForeignKey(Step, related_name="step_likes")
+    
+    step = models.ForeignKey(Step, null = True, related_name="step_likes")
+    project = models.ForeignKey(Project, null = True, related_name="project_likes")
     
     date = models.DateTimeField(auto_now_add=True)
     
@@ -639,7 +549,7 @@ class Notification(models.Model):
     date = models.DateTimeField(auto_now_add=True)
     action = models.CharField(max_length=50, null=True)
     action_maker = models.ForeignKey(Registereduser, related_name='action_maker')
-    project = models.ForeignKey(Activationproject, null=True)
+    project = models.ForeignKey(Project, null=True)
     step = models.ForeignKey(Step, null=True)
     
     
@@ -649,7 +559,7 @@ class Notification(models.Model):
 class Comment(models.Model):
     
     user = models.ForeignKey(Registereduser)
-    project = models.ForeignKey(Activationproject, null=True, related_name="project_comments")
+    project = models.ForeignKey(Project, null=True, related_name="project_comments")
     step = models.ForeignKey(Step, null=True, related_name="step_comments")
     
     date = models.DateTimeField(auto_now_add=True)

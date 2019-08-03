@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from django.db.models import Max, Min, Prefetch
-from .models import  Registereduser, Activationproject, Step, ProjectLike, StepLike, Notification, Comment
+from .models import  Registereduser, Project, Step, Like, Notification, Comment
 from datetime import datetime
 
 from rest_framework import status
@@ -16,7 +16,9 @@ from django.utils.encoding import smart_str
 from django.conf import settings
 from django.forms.models import model_to_dict
 from .profile import check_authorization
+from .general_functions import make_projectlist, make_userobject
 
+from django.db import connection
 
 
 
@@ -39,7 +41,7 @@ def projects(request):
         authorization_ok, user_instance = check_authorization(request)
     
         if(authorization_ok):
-            userdata = user_instance.userobject()
+            userdata = make_userobject(user_instance)
         else:
             userdata = None
         
@@ -67,28 +69,23 @@ def projects(request):
         except:
             search_term = ''
     
-    
         
-        projektit = Activationproject.objects.annotate(latest_step_taken=Max('step__step_taken'), first_step_taken=Min('step__step_taken')).exclude(latest_step_taken = None)
+        
+        projects = Project.objects.annotate(latest_step_taken=Max('step__step_taken'), first_step_taken=Min('step__step_taken')).prefetch_related('user', 'certificated_root_project').exclude(latest_step_taken = None)
         if(projects_to_show != 'all'):
-            projektit = projektit.filter(status = projects_to_show)
+            projects = projects.filter(status = projects_to_show)
         if(len(search_term) > 0):
-            projektit = projektit.filter(name__icontains=search_term)
+            projects = projects.filter(name__icontains=search_term)
             
-        matching_project_count = projektit.count()
+        matching_project_count = projects.count()
             
-        projektit = projektit.order_by(order)[:projects_to_show_count]
+        projects = projects.order_by(order)[:projects_to_show_count]
         
+        projectlist = make_projectlist(projects)
     
-        projektilista = []
-        for projekti in projektit:
-            projektilista.append(projekti.listobject())
-        
+        all_projects_object = {'error': False, 'error_message': '', 'projects': projectlist, 'matching_project_count': matching_project_count}
     
-        all_projects_object = {'error': False, 'error_message': '', 'projects': projektilista, 'matching_project_count': matching_project_count}
     
-
-        
         data = {
             'all_projects_data': all_projects_object,
             'userdata': userdata
@@ -108,7 +105,7 @@ def projects(request):
         authorization_ok, user_instance = check_authorization(request)
     
         if(authorization_ok):
-            userdata = user_instance.userobject(user_instance)
+            userdata = make_userobject(user_instance)
         else:
             projectdata = {'error': True, 'error_message': "Authorization error."}
             return Response(projectdata)
@@ -119,7 +116,7 @@ def projects(request):
     
     
             try:
-                newProject = Activationproject()
+                newProject = Project()
                 newProject.user = user_instance        
                 newProject.name = request.data['project_name']
                 newProject.description = request.data['project_info']
@@ -147,7 +144,7 @@ def projects(request):
                     newProject.save()
                     
     
-                    projekti.move_coverphoto_to_s3()
+                    newProject.move_coverphoto_to_s3()
                     
                 except:
                     newProject.cover_photo = None
@@ -169,7 +166,7 @@ def projects(request):
 
             try:
                 challenge_id = request.data['challenge_id']
-                challenge = Activationproject.objects.get(id = challenge_id)
+                challenge = Project.objects.get(id = challenge_id)
             
             except:
                 response = {'challenge_started': False, 'error': True, 'error_message': "Tuntematon ongelma."}
@@ -178,7 +175,7 @@ def projects(request):
             
             
             try:
-                newProject = Activationproject()
+                newProject = Project()
                 newProject.user = user_instance  
                 newProject.name = challenge.name
                 newProject.description = challenge.description
@@ -215,7 +212,7 @@ def challenges(request):
     authorization_ok, user_instance = check_authorization(request)
 
     if(authorization_ok):
-        userdata = user_instance.userobject()
+        userdata = make_userobject(user_instance)
     else:
         userdata = None
     
@@ -223,27 +220,18 @@ def challenges(request):
     categories = {}
     
 
-    projektilista = []
+    projectlist = []
     
-    projektit = Activationproject.objects.filter(certificated_project = True).order_by('order_number')
+    projects = Project.objects.filter(certificated_project = True).order_by('order_number')
             
-    for projekti in projektit:
-        projektiobjekti = {}
-        projektiobjekti['name'] = projekti.name
-        projektiobjekti['id'] = projekti.id
-        projektiobjekti['description'] = projekti.description
-        projektiobjekti['cover_photo_s3_url'] = projekti.cover_photo_s3_url
-        projektiobjekti['goal'] = projekti.goal
-        projektiobjekti['numeric_goal'] = projekti.numeric_goal
-        projektiobjekti['numeric_goal_unit'] = projekti.numeric_goal_unit
-        projektiobjekti['time_limit'] = projekti.time_limit
-        projektiobjekti['time_limit_days'] = projekti.time_limit_days
-        projektiobjekti['category'] = projekti.category
+    for project in projects:
         
-        categories[projekti.category] = True
+        projectobject = model_to_dict(project)
         
-
-        enrolled_users_projects = Activationproject.objects.filter(certificated_root_project = projekti).annotate(latest_step_taken=Max('step__step_taken')).select_related('user')
+        
+        categories[project.category] = True
+        
+        enrolled_users_projects = Project.objects.filter(certificated_root_project = project).annotate(latest_step_taken=Max('step__step_taken')).select_related('user')
         
         challenge_completed_users = []
         challenge_accepted_users = []
@@ -274,18 +262,18 @@ def challenges(request):
                 enrolled_user_ids.append(enrolled_user_project.user.id)
         
         
-        projektiobjekti['challenge_completed_users'] = challenge_completed_users
-        projektiobjekti['challenge_accepted_users'] = challenge_accepted_users
-        projektiobjekti['enrolled_user_ids'] = enrolled_user_ids
-        projektiobjekti['completed_user_ids'] = completed_user_ids
+        projectobject['challenge_completed_users'] = challenge_completed_users
+        projectobject['challenge_accepted_users'] = challenge_accepted_users
+        projectobject['enrolled_user_ids'] = enrolled_user_ids
+        projectobject['completed_user_ids'] = completed_user_ids
         
-        projektilista.append(projektiobjekti)
+        projectlist.append(projectobject)
     
     
     categorylist = [ k for k in categories ]
     
     
-    return Response({'error': False, 'error_message': '', 'categories': categorylist, 'challenges': projektilista, 'userdata': userdata})
+    return Response({'error': False, 'error_message': '', 'categories': categorylist, 'challenges': projectlist, 'userdata': userdata})
 
 
 
@@ -308,7 +296,7 @@ def project(request, url_token):
     if(request.method == 'GET'):
 
         try:
-            project = Activationproject.objects.prefetch_related('project_likers').get(url_token = url_token)
+            project = Project.objects.select_related('user', 'certificated_root_project').prefetch_related('project_likes').get(url_token = url_token)
         except:
             projectdata = {'error': True, 'error_message': "Project not found."}
             return Response(projectdata)
@@ -327,19 +315,13 @@ def project(request, url_token):
     
     
     
-        
-        
-        
-    
         authorization_ok, user_instance = check_authorization(request)
     
+    
         if(authorization_ok):
-            userdata = user_instance.userobject()
+            userdata = make_userobject(user_instance)
         else:
             userdata = None
-    
-    
-    
     
         
         project_owner_id = project.user.id
@@ -360,30 +342,7 @@ def project(request, url_token):
             
         
         
-        likers = []
-        project_liked = False
-        my_like_id = None
-        project_likers = ProjectLike.objects.filter(project = project).prefetch_related('user')
-        for liker in project_likers:
-            
-            if(userdata):
-                if(liker.user.id == userdata['user_id']):
-                    project_liked = True
-                    my_like_id = liker.id
-            
-            likerElement = {}
-            likerElement['date'] = liker.date
-    
-            if(liker.user.name):
-                likerElement['liker_name'] = liker.user.name
-            else:
-                likerElement['liker_name'] = liker.user.user.username
-            
-            likerElement['liker_avatar_s3_url'] = liker.user.avatar_s3_url
-            likerElement['liker_url_token'] = liker.user.url_token
-            
-            likers.append(likerElement)
-        
+        likers = project.get_likes(prefetched_likes = project.project_likes.all())
         
         
         
@@ -410,8 +369,6 @@ def project(request, url_token):
         else:
             cover_photo_s3_url = project.cover_photo_s3_url
             
-        
-        
         
         projectdata = {
                        'error': False,
@@ -446,8 +403,6 @@ def project(request, url_token):
                        'step_likes_allowed': project.step_likes_allowed,
                        'step_comments_allowed': project.step_comments_allowed,
                        'steps': steplist,
-                       'project_liked': project_liked,
-                       'my_like_id': my_like_id,
                        'category': project.category,
                        'order_number': project.order_number,
                        'likers': likers}
@@ -470,7 +425,7 @@ def project(request, url_token):
 
 
         try:
-            projekti = Activationproject.objects.get(url_token=url_token)
+            projekti = Project.objects.get(url_token=url_token)
         except:
             projectDeleteResponse = {'error': True, 'error_message': "Project not found"}
             return Response(projectDeleteResponse)
@@ -508,7 +463,7 @@ def project(request, url_token):
 
 
         try:
-            projekti = Activationproject.objects.get(url_token = url_token)
+            projekti = Project.objects.get(url_token = url_token)
         except:
             projectEditResponse = {'error': True, 'error_message': "Project not found"}
             return Response(projectEditResponse)
@@ -591,7 +546,7 @@ def project(request, url_token):
         projekti.save()
         
         
-        countNumericTotal(projekti)
+        projekti.count_numeric_total()
         projectEditResponse = {'error': False, 'error_message': ''}
         return Response(projectEditResponse)
 
@@ -645,34 +600,34 @@ def projectlikes(request, project_id):
         
         
         try:
-            projekti = Activationproject.objects.get(id=project_id)
+            projekti = Project.objects.get(id=project_id)
         except:
             return Response({'error': True, 'error_message': "Project not found"})
         
         
     
         try:
-            liketest = ProjectLike.objects.get(project = projekti, user = user_instance)
+            liketest = Like.objects.get(project = projekti, user = user_instance)
             addProjectlikeResponse = {'error': True, 'error_message': "Already liked."}
             return Response(addProjectlikeResponse)
             
         except:
-            newLike = ProjectLike(project = projekti, user = user_instance)
+            newLike = Like(project = projekti, user = user_instance)
             newLike.save()
-            projekti.like_count = len(ProjectLike.objects.filter(project = projekti))
+            projekti.like_count = len(Like.objects.filter(project = projekti))
             projekti.save()
             
             notification = Notification(user = projekti.user, action = "project_like_added", action_maker = user_instance, project = projekti, step = None)
             notification.save()
             
             
-            likers = projekti.get_likers()
+            likers = projekti.get_likes()
             
     
      
             
             
-            addProjectlikeResponse = {'error': False, 'error_message': '', 'likers': likers, 'my_like_id': newLike.id}
+            addProjectlikeResponse = {'error': False, 'error_message': '', 'likers': likers}
             return Response(addProjectlikeResponse)
             
 
@@ -702,86 +657,37 @@ def projectlike(request, project_id, like_id):
     
 
         try:
-            projekti = Activationproject.objects.get(id=project_id)
+            project = Project.objects.get(id=project_id)
         except:
-            removeProjectlikeResponse = {'error': True, 'error_message': "Authentikointitiedot väärin. Yritä myöhemmin uudelleen."}
+            removeProjectlikeResponse = {'error': True, 'error_message': "Authentication error."}
             return Response(removeProjectlikeResponse)
         
     
     
         try:
-            liketest = ProjectLike.objects.get(id = like_id, user = user_instance)
+            liketest = Like.objects.get(id = like_id, user = user_instance)
             liketest.delete()
-            projekti.like_count = len(ProjectLike.objects.filter(project = projekti))
-            projekti.save()
+            project.like_count = len(Like.objects.filter(project = project))
+            project.save()
             
             try:
-                poistettava_notification = Notification.objects.get(action = "project_like_added", action_maker = user_instance, project = projekti)
-                poistettava_notification.delete()
+                notification = Notification.objects.get(action = "project_like_added", action_maker = user_instance, project = project)
+                notification.delete()
             except:
                 pass
             
 
-            likers = projekti.get_likers()
+            likers = project.get_likes()
             
             
             removeProjectlikeResponse = {'error': False, 'error_message': '', 'likers': likers}
             return Response(removeProjectlikeResponse)
             
         except:
-            removeProjectlikeResponse = {'error': True, 'error_message': "Tykkäystä ei löytynyt."}
+            removeProjectlikeResponse = {'error': True, 'error_message': "Like not found"}
             return Response(removeProjectlikeResponse)
 
 
-
-
-
-
-
-def countNumericTotal(project):
-    
-    
-    projectSteps = Step.objects.filter(project = project)
-    
-    project.step_count = len(projectSteps)
-    
-    
-    try:
-        step_percentage = (project.step_count * 100) / project.numeric_goal
-        if(step_percentage < 0):
-            step_percentage = 0
-        if (step_percentage > 100):
-            step_percentage = 100   
-    except:
-        step_percentage = 0
-    
-    
-    
-    
-    
-    
-    count = 0
-    for step in projectSteps:
-        if(step.numeric_value):
-            count = count + step.numeric_value
-    
-    project.numeric_total = count
-    
-    
-    try:
-        numeric_percentage = (project.numeric_total * 100) / project.numeric_goal
-        if(numeric_percentage < 0):
-            numeric_percentage = 0
-        if (numeric_percentage > 100):
-            numeric_percentage = 100   
-    except:
-        numeric_percentage = 0
-    
-    
-    
-    project.step_percentage = step_percentage
-    project.numeric_percentage = numeric_percentage
-    project.save()
 
 
 

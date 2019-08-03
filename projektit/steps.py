@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 
-from .models import  Registereduser, Activationproject, Step, StepLike, Notification, Comment
+from .models import  Registereduser, Project, Step, Like, Notification, Comment
 from datetime import datetime
 
 from rest_framework.decorators import api_view, renderer_classes
@@ -11,7 +11,6 @@ import uuid, os, base64
 from dateutil.relativedelta import relativedelta
 import boto3, mimetypes
 
-from .projects import countNumericTotal
 from django.conf import settings
 from .profile import check_authorization
 
@@ -37,11 +36,11 @@ def stepcomments(request, step_id):
         
         
         try:
-            kommentti = request.data['comment']
+            comment_text = request.data['comment']
             step = Step.objects.get(id = step_id)
         
         except:
-            response = {'error': True, 'error_message': "Tuntematon ongelma tietojen lukemisen kanssa."}
+            response = {'error': True, 'error_message': "Unknown error"}
             return Response(response)
         
         
@@ -50,7 +49,7 @@ def stepcomments(request, step_id):
             newComment.user = user_instance       
             newComment.project = None
             newComment.step = step
-            newComment.comment = kommentti
+            newComment.comment = comment_text
             newComment.save()
             
             if(user_instance != step.project.user):
@@ -58,7 +57,7 @@ def stepcomments(request, step_id):
                 notification.save()
             
         except:
-            response = {'error': True, 'error_message': "Tuntematon ongelma."}
+            response = {'error': True, 'error_message': "Unknown error."}
             return Response(response)
     
     
@@ -97,13 +96,13 @@ def stepcomment(request, step_id, comment_id):
             comment = Comment.objects.get(id = int(comment_id))
             step = comment.step
         except:
-            response = {'error': True, 'error_message': "Tuntematon ongelma tietojen lukemisen kanssa."}
+            response = {'error': True, 'error_message': "Unknown error."}
             return Response(response)
         
     
         
         if(comment.step.project.user != user_instance and comment.user != user_instance):
-            response = {'error': True, 'error_message': "Ei oikeuksia poistaa kommenttia."}
+            response = {'error': True, 'error_message': "No rights error"}
             return Response(response) 
         
         
@@ -117,10 +116,10 @@ def stepcomment(request, step_id, comment_id):
     
     
     
-        kommenttilista = step.get_commentlist()
+        commentlist = step.get_commentlist()
     
     
-        response = response = {'error': False, 'error_message': None, 'comments': kommenttilista}
+        response = response = {'error': False, 'error_message': None, 'comments': commentlist}
         return Response(response)
 
 
@@ -148,19 +147,19 @@ def steps(request):
     
         try:
             project_id = request.data['project_id']
-            projekti = Activationproject.objects.get(id=project_id)
+            project = Project.objects.get(id=project_id)
         except:
             stepdata = {'error': True, 'error_message': "Project not found"}
         
         
     
-        if(projekti.user != user_instance):
+        if(project.user != user_instance):
             return Response({'error': True, 'error_message': 'Authorization error'})
         
         
     
         newStep = Step()
-        newStep.project = projekti
+        newStep.project = project
         newStep.topic = request.data['step_topic']
         newStep.description = request.data['step_description']
         try:
@@ -177,10 +176,10 @@ def steps(request):
         
         imagedata = request.data['proof_image_base64'].split(",")[-1]
         contentType = request.data['proof_image_base64'].split(":")[1].split(";")[0]
-        tiedostopaate = request.data['proof_image_name'].split(".")[-1]
+        file_ext = request.data['proof_image_name'].split(".")[-1]
             
-        kuva = base64.b64decode(imagedata)
-        tiedostonimi = "step-" + str(uuid.uuid4()) + "." + tiedostopaate
+        image = base64.b64decode(imagedata)
+        filename = "step-" + str(uuid.uuid4()) + "." + file_ext.lower()
         
         
         
@@ -188,21 +187,21 @@ def steps(request):
             os.makedirs('{0}/projektikansio/static/temp'.format(settings.BASE_DIR))
     
     
-        with open('{0}/projektikansio/static/temp/{1}'.format(settings.BASE_DIR, tiedostonimi), 'wb+') as destination:
-            destination.write(kuva)
+        with open('{0}/projektikansio/static/temp/{1}'.format(settings.BASE_DIR, filename), 'wb+') as destination:
+            destination.write(image)
         
         
-        newStep.proof1 = tiedostonimi
+        newStep.proof1 = filename
         newStep.save()
         
         newStep.move_image_to_s3()
         
         
-        projekti.save()
+        project.save()
         
-        countNumericTotal(projekti)
+        project.count_numeric_total()
         
-        stepdata = {'error': False, 'error_message': None}
+        stepdata = {'error': False, 'error_message': ''}
             
     
     
@@ -243,7 +242,7 @@ def step(request, step_id):
         
         
         if(step.project.user != user_instance):
-            stepdata = {'error': True, 'error_message': "Authentikointitiedot väärin."}
+            stepdata = {'error': True, 'error_message': "No rights error."}
 
         
         step.topic = step_topic
@@ -262,7 +261,7 @@ def step(request, step_id):
         step.save()
         
         
-        countNumericTotal(step.project)
+        step.project.count_numeric_total()
         stepdata = {'error': False, 'error_message': ''}
     
         return Response(stepdata)
@@ -290,13 +289,13 @@ def step(request, step_id):
     
 
         if(step.project.user != user_instance):
-            stepdata = {'error': True, 'error_message': "Authentikointitiedot väärin."}
+            stepdata = {'error': True, 'error_message': "No rights error."}
 
         
         projekti = step.project
 
         step.poista()
-        countNumericTotal(projekti)
+        projekti.count_numeric_total()
         
         stepdata = {'error': False, 'error_message': None}
         
@@ -332,7 +331,7 @@ def steplikes(request, step_id):
     
 
         try:
-            liketest = StepLike.objects.get(step = step, user = user_instance)
+            liketest = Like.objects.get(step = step, user = user_instance)
             addSteplikeResponse = {'error': True, 'error_message': "Step already liked."}
             return Response(addSteplikeResponse)
             
@@ -341,9 +340,9 @@ def steplikes(request, step_id):
         
         
 
-        newLike = StepLike(step = step, user = user_instance)
+        newLike = Like(step = step, user = user_instance)
         newLike.save()
-        step.like_count = len(StepLike.objects.filter(step = step))
+        step.like_count = len(Like.objects.filter(step = step))
         step.save()
         notification = Notification(user = step.project.user, action = "step_like_added", action_maker = user_instance, project = step.project, step = step)
         notification.save()
@@ -375,15 +374,14 @@ def steplike(request, step_id, like_id):
         
     
         try:
-            liketest = StepLike.objects.get(id = like_id, user = user_instance)
+            liketest = Like.objects.get(id = like_id, user = user_instance)
             step = liketest.step
             liketest.delete()
-            step.like_count = len(StepLike.objects.filter(step = step))
             step.save()
             
             try:
-                poistettava_notification = Notification.objects.get(action = "step_like_added", action_maker = user_instance, project = step.project, step = step)
-                poistettava_notification.delete()
+                notification = Notification.objects.get(action = "step_like_added", action_maker = user_instance, project = step.project, step = step)
+                notification.delete()
             except:
                 pass
             

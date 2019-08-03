@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from django.http import HttpResponse
-from .models import  Activationproject
+from .models import  Project
 from django.shortcuts import render
 
 from rest_framework.decorators import api_view, renderer_classes
@@ -21,7 +21,7 @@ def index(request):
 
 def sitemap(request):
     
-    projektit = Activationproject.objects.all()
+    projektit = Project.objects.all()
     
     content = ""
     
