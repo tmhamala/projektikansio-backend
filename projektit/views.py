@@ -12,10 +12,15 @@ from rest_framework.renderers import JSONRenderer
 import telegram
 from django.conf import settings
 
+from django import get_version
+
+
+
 
 def index(request):
     
-    return render(request, template_name='index.html')
+    context = {'version': 'Django ' + get_version()}
+    return render(request, context=context, template_name='index.html')
 
 
 

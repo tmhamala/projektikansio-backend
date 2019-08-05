@@ -1,29 +1,7 @@
 # -*- coding: utf-8 -*-
 
-from django.contrib.auth import authenticate
-
-
-from .models import  Registereduser, Project, Notification, JWTAuthenticationToken
-from datetime import datetime
-from django.contrib.auth.models import User
+from .models import Project, Notification
 from django.db.models import Max
-from rest_framework import status
-from rest_framework.decorators import api_view, renderer_classes
-from rest_framework.response import Response
-from rest_framework.renderers import JSONRenderer
-import uuid, os, base64, boto3, mimetypes
-from dateutil.relativedelta import relativedelta
-
-
-from wsgiref.util import FileWrapper
-import shutil, requests
-from django.utils.encoding import smart_str
-from django.conf import settings
-from jose import jwt
-
-from django.db import connection
-
-
 
 
 
@@ -44,7 +22,7 @@ def make_projectlist(projects_queryset):
         projektiobjekti['description'] = project.description
     
         projektiobjekti['project_owner_avatar'] = project.user.avatar_s3_url
-        projektiobjekti['like_count'] = project.like_count
+        projektiobjekti['like_count'] = project.project_likes.count()
         projektiobjekti['latest_step_taken_isoformat'] = project.latest_step_taken
         
         

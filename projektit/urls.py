@@ -7,7 +7,7 @@ from rest_framework import routers
 
 
 from . import views
-from projektit import projects, profile, steps,  users
+from projektit import projects, projectlikes, profile, steps,  users
 
 
 urlpatterns = [
@@ -26,8 +26,8 @@ urlpatterns = [
     url(r'^projects/$', projects.projects),
     url(r'^projects/(?P<url_token>\w+)/$', projects.project),
     
-    url(r'^projects/(?P<project_id>[0-9]+)/projectlikes/$', projects.projectlikes),
-    url(r'^projects/(?P<project_id>[0-9]+)/projectlikes/(?P<like_id>[0-9]+)/$', projects.projectlike),
+    url(r'^projects/(?P<project_id>[0-9]+)/projectlikes/$', projectlikes.projectlikes),
+    url(r'^projects/(?P<project_id>[0-9]+)/projectlikes/(?P<like_id>[0-9]+)/$', projectlikes.projectlike),
     
     
     

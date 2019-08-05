@@ -16,13 +16,10 @@ from django.db.models import Prefetch
 
 class Registereduser(models.Model):
     
-    user = models.OneToOneField(User)
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
     name = models.CharField(max_length=50, null=True)
     email = models.CharField(max_length=50, null=True)
     info = models.CharField(max_length=1000, null=True)
-    
-    auth_token = models.CharField(max_length=100, null=True)
-    token_valid_until = models.DateTimeField(null=True)
     
     password_reset_token = models.CharField(max_length=100, null=True)
     password_reset_token_valid_until = models.DateTimeField(default=datetime(1800, 1, 1))
@@ -98,7 +95,7 @@ class Registereduser(models.Model):
 
 class JWTAuthenticationToken(models.Model):
     
-    user = models.ForeignKey(Registereduser)
+    user = models.ForeignKey(Registereduser, on_delete=models.CASCADE)
     token = models.CharField(max_length=300, blank=True)
     device_info = models.CharField(max_length=300, blank=True)
 
@@ -108,7 +105,7 @@ class JWTAuthenticationToken(models.Model):
 
 class Project(models.Model):
     
-    user = models.ForeignKey(Registereduser, null=True)
+    user = models.ForeignKey(Registereduser, null=True, on_delete=models.SET_NULL)
     
     order_number = models.IntegerField(default=0)
     category = models.CharField(max_length=100, null=True)
@@ -143,7 +140,6 @@ class Project(models.Model):
     
     step_ratings = models.BooleanField(default = False)
     
-    like_count = models.IntegerField(null=True, default = 0)
     project_likes_allowed = models.BooleanField(default = True)
     step_likes_allowed = models.BooleanField(default = True)
     step_comments_allowed = models.BooleanField(default = False)
@@ -154,13 +150,13 @@ class Project(models.Model):
     
 
     
-    def poista(self):
+    def remove_files_and_delete(self):
         
         
         all_steps = Step.objects.filter(project = self)
         
         for step in all_steps:
-            step.poista()
+            step.remove_files_and_delete()
         
 
         if self.cover_photo_s3_key:
@@ -361,7 +357,7 @@ class Project(models.Model):
 
 class Step(models.Model):
     
-    project = models.ForeignKey(Project)
+    project = models.ForeignKey(Project, on_delete=models.CASCADE)
     
     topic = models.CharField(max_length=100, null=True)
     description = models.CharField(max_length=5000, null=True)
@@ -382,7 +378,7 @@ class Step(models.Model):
     
     
     
-    def poista(self):
+    def remove_files_and_delete(self):
         
 
         if self.proof_s3_key:
@@ -408,42 +404,32 @@ class Step(models.Model):
         
     def get_commentlist(self, prefetched_comments = None):
         
-        kommenttilista = []
+        commentlist = []
 
         
         if(isinstance(prefetched_comments, QuerySet)):
-            kommentit = prefetched_comments
+            comments = prefetched_comments
         else:
-            kommentit = Comment.objects.filter(step = self).prefetch_related('user').order_by('-date')
+            comments = Comment.objects.filter(step = self).prefetch_related('user').order_by('date')
                 
-        for kommentti in kommentit:
+        for comment in comments:
             objekti = {}
-            objekti['comment'] = kommentti.comment
-            objekti['comment_id'] = kommentti.id
+            objekti['comment'] = comment.comment
+            objekti['comment_id'] = comment.id
             
-            if(kommentti.user.name):
-                objekti['user_name'] = kommentti.user.name
+            if(comment.user.name):
+                objekti['user_name'] = comment.user.name
             else:
                 objekti['user_name'] = "No name"
-            objekti['user_id'] = kommentti.user.id
-            objekti['user_avatar_s3_url'] = kommentti.user.avatar_s3_url
-            objekti['user_url_token'] = kommentti.user.url_token
+            objekti['user_id'] = comment.user.id
+            objekti['user_avatar_s3_url'] = comment.user.avatar_s3_url
+            objekti['user_url_token'] = comment.user.url_token
+            objekti['date'] = comment.date
             
             
-            if(kommentti.date.date() == datetime.now().date()):
-                objekti['date'] = kommentti.date.strftime("Tänään klo %H:%M")
-            elif(kommentti.date.date() == (datetime.now() - relativedelta(days = 1)).date()):
-                objekti['date'] = kommentti.date.strftime("Eilen klo %H:%M")
-            elif(kommentti.date.date() == (datetime.now() - relativedelta(days = 2)).date()):
-                objekti['date'] = kommentti.date.strftime("Toissapäivänä klo %H:%M")
-            else:
-                objekti['date'] = kommentti.date.strftime("%d.%m.%Y klo %H:%M")
-            
-            
-            
-            kommenttilista.append(objekti)
+            commentlist.append(objekti)
         
-        return kommenttilista
+        return commentlist
     
     
     def get_likers(self, prefetched_likers = None):
@@ -534,23 +520,23 @@ class Step(models.Model):
 
 class Like(models.Model):
     
-    user = models.ForeignKey(Registereduser)
+    user = models.ForeignKey(Registereduser, on_delete=models.CASCADE)
     
-    step = models.ForeignKey(Step, null = True, related_name="step_likes")
-    project = models.ForeignKey(Project, null = True, related_name="project_likes")
+    step = models.ForeignKey(Step, null = True, related_name="step_likes", on_delete=models.CASCADE)
+    project = models.ForeignKey(Project, null = True, related_name="project_likes", on_delete=models.CASCADE)
     
     date = models.DateTimeField(auto_now_add=True)
     
 
 class Notification(models.Model):
     
-    user = models.ForeignKey(Registereduser)
+    user = models.ForeignKey(Registereduser, on_delete=models.CASCADE)
     
     date = models.DateTimeField(auto_now_add=True)
     action = models.CharField(max_length=50, null=True)
-    action_maker = models.ForeignKey(Registereduser, related_name='action_maker')
-    project = models.ForeignKey(Project, null=True)
-    step = models.ForeignKey(Step, null=True)
+    action_maker = models.ForeignKey(Registereduser, related_name='action_maker', on_delete=models.CASCADE)
+    project = models.ForeignKey(Project, null=True, on_delete=models.CASCADE)
+    step = models.ForeignKey(Step, null=True, on_delete=models.CASCADE)
     
     
     
@@ -558,9 +544,9 @@ class Notification(models.Model):
     
 class Comment(models.Model):
     
-    user = models.ForeignKey(Registereduser)
-    project = models.ForeignKey(Project, null=True, related_name="project_comments")
-    step = models.ForeignKey(Step, null=True, related_name="step_comments")
+    user = models.ForeignKey(Registereduser, on_delete=models.CASCADE)
+    project = models.ForeignKey(Project, null=True, related_name="project_comments", on_delete=models.CASCADE)
+    step = models.ForeignKey(Step, null=True, related_name="step_comments", on_delete=models.CASCADE)
     
     date = models.DateTimeField(auto_now_add=True)
     

@@ -8,7 +8,7 @@ from rest_framework.decorators import api_view, renderer_classes
 from rest_framework.response import Response
 from rest_framework.renderers import JSONRenderer
 from .general_functions import make_projectlist
-
+from django.db.models import Count
 
 
 @api_view(['GET'])
@@ -20,7 +20,7 @@ def user(request, url_token):
         user = Registereduser.objects.get(url_token = url_token)
         
         projectlist = []
-        projects = Project.objects.filter(user = user).annotate(latest_step_taken=Max('step__step_taken')).order_by('-latest_step_taken')
+        projects = Project.objects.filter(user = user).annotate(latest_step_taken=Max('step__step_taken')).prefetch_related('project_likes').order_by('-latest_step_taken')
         
               
         projectlist = make_projectlist(projects)

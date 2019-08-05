@@ -417,7 +417,7 @@ def profile(request):
         uusiKayttaja.save()
         
         new_jwt_token = JWTAuthenticationToken()
-        token = jwt.encode({'user_id': uusiKayttaja.id, 'iat': datetime.now(), 'exp': datetime.now() + relativedelta(years=1)}, 'secret', algorithm='HS256')
+        token = jwt.encode({'user_id': uusiKayttaja.id, 'iat': datetime.now(), 'exp': datetime.now() + relativedelta(years=1)}, settings.JWT_SECRET, algorithm='HS256')
         new_jwt_token.token = token
         new_jwt_token.user = uusiKayttaja
         new_jwt_token.save()
@@ -533,12 +533,12 @@ def delete_account(request):
             return Response(accountDeleteResponse)
         
         
-        kayttajanProjektit = Project.objects.filter(user = user_instance)
+        user_projects = Project.objects.filter(user = user_instance)
         
-        for projekti in kayttajanProjektit:
+        for project in user_projects:
             
             try:
-                projekti.delete()
+                project.remove_files_and_delete()
             except:
                 pass
         

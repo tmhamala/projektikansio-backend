@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from django.db.models import Max, Min, Prefetch
+from django.db.models import Max, Min, Prefetch, Count
 from .models import  Registereduser, Project, Step, Like, Notification, Comment
 from datetime import datetime
 
@@ -71,7 +71,7 @@ def projects(request):
     
         
         
-        projects = Project.objects.annotate(latest_step_taken=Max('step__step_taken'), first_step_taken=Min('step__step_taken')).prefetch_related('user', 'certificated_root_project').exclude(latest_step_taken = None)
+        projects = Project.objects.annotate(latest_step_taken=Max('step__step_taken')).select_related('user', 'certificated_root_project').prefetch_related('project_likes').exclude(latest_step_taken = None)
         if(projects_to_show != 'all'):
             projects = projects.filter(status = projects_to_show)
         if(len(search_term) > 0):
@@ -317,98 +317,58 @@ def project(request, url_token):
     
         authorization_ok, user_instance = check_authorization(request)
     
-    
         if(authorization_ok):
             userdata = make_userobject(user_instance)
         else:
             userdata = None
-    
-        
-        project_owner_id = project.user.id
-        project_owner_name = project.user.name
-        project_owner_avatar = project.user.avatar_s3_url
-        project_owner_url_token = project.user.url_token
+            
         
         
-        steplist = project.get_steps(search_term = search_term, steps_to_show = steps_to_show)
+        
+        projectDict = model_to_dict(project)
 
+        projectDict['project_owner_id'] = project.user.id
+        projectDict['project_owner_name'] = project.user.name
+        projectDict['project_owner_avatar'] = project.user.avatar_s3_url
+        projectDict['project_owner_url_token'] = project.user.url_token
+        
+        
+        projectDict['steps'] = project.get_steps(search_term = search_term, steps_to_show = steps_to_show)
+        projectDict['likers'] = project.get_likes(prefetched_likes = project.project_likes.all())
     
         
         
         try:
-            project_started = Step.objects.filter(project = project).order_by('step_taken').first().step_taken
+            projectDict['project_started'] = Step.objects.filter(project = project).order_by('step_taken').first().step_taken
         except:
-            project_started = None
+            projectDict['project_started'] = None
             
         
-        
-        likers = project.get_likes(prefetched_likes = project.project_likes.all())
-        
-        
-        
         if(project.certificated_root_project):
-            certificated_root_project_id = project.certificated_root_project.id
+            projectDict['certificated_root_project_id'] = project.certificated_root_project.id
+            projectDict['cover_photo_s3_url'] = project.certificated_root_project.cover_photo_s3_url
         else:
-            certificated_root_project_id = None
+            projectDict['certificated_root_project_id'] = None
         
         
-        if(not project_started):
-            days_passed = 0
-            days_passed_percentage = 0
+        if(not projectDict['project_started']):
+            projectDict['days_passed'] = 0
+            projectDict['days_passed_percentage'] = 0
         elif(project.time_limit and project.time_limit_days):
-            days_passed = (datetime.now() - project_started).days
-            days_passed_percentage = (days_passed * 100) / project.time_limit_days
+            projectDict['days_passed'] = (datetime.now() - projectDict['project_started']).days
+            projectDict['days_passed_percentage'] = (projectDict['days_passed'] * 100) / project.time_limit_days
         else:
-            days_passed = 0
-            days_passed_percentage = 0
+            projectDict['days_passed'] = 0
+            projectDict['days_passed_percentage'] = 0
             
             
-        
-        if(project.certificated_root_project):
-            cover_photo_s3_url = project.certificated_root_project_cover_photo_s3_url
-        else:
-            cover_photo_s3_url = project.cover_photo_s3_url
+    
+            
+    
             
         
-        projectdata = {
-                       'error': False,
-                       'error_message': None,
-                       'project_owner_id': project_owner_id,
-                       'project_owner_url_token': project_owner_url_token,
-                       'project_owner_avatar': project_owner_avatar,
-                       'project_owner_name': project_owner_name,
-                       'name': project.name,
-                       'description': project.description,
-                       'cover_photo_s3_url': cover_photo_s3_url,
-                       'goal': project.goal,
-                       'numeric_goal': project.numeric_goal,
-                       'numeric_goal_unit': project.numeric_goal_unit,
-                       'numeric_total': project.numeric_total,
-                       'numeric_percentage': project.numeric_percentage,
-                       'step_goal': project.step_goal,
-                       'step_percentage': project.step_percentage,
-                       'step_ratings': project.step_ratings,
-                       'step_count': project.step_count,
-                       'like_count': project.like_count,
-                       'id': project.id,
-                       'time_limit': project.time_limit,
-                       'time_limit_days': project.time_limit_days,
-                       'days_passed': days_passed,
-                       'days_passed_percentage': days_passed_percentage,
-                       'project_started': project_started,
-                       'status': project.status,
-                       'certificated_project': project.certificated_project,
-                       'certificated_root_project': certificated_root_project_id,
-                       'project_likes_allowed': project.project_likes_allowed,
-                       'step_likes_allowed': project.step_likes_allowed,
-                       'step_comments_allowed': project.step_comments_allowed,
-                       'steps': steplist,
-                       'category': project.category,
-                       'order_number': project.order_number,
-                       'likers': likers}
         
-        
-        return Response({'error': False, 'error_message': '', 'projectdata': projectdata, 'userdata': userdata})
+        return Response({'error': False, 'error_message': '', 'projectdata': projectDict, 'userdata': userdata})
 
 
 
@@ -437,7 +397,7 @@ def project(request, url_token):
     
     
         try:
-            projekti.poista()
+            projekti.remove_files_and_delete()
         except:
             pass
         
@@ -572,120 +532,6 @@ def project(request, url_token):
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-@api_view(['POST'])
-@renderer_classes((JSONRenderer,))
-def projectlikes(request, project_id):
-    
-    
-    if(request.method == 'POST'):
-
-        
-    
-        authorization_ok, user_instance = check_authorization(request)
-    
-        if(not authorization_ok):
-            return Response({'error': True, 'error_message': "Login needed."})
-        
-        
-        
-        try:
-            projekti = Project.objects.get(id=project_id)
-        except:
-            return Response({'error': True, 'error_message': "Project not found"})
-        
-        
-    
-        try:
-            liketest = Like.objects.get(project = projekti, user = user_instance)
-            addProjectlikeResponse = {'error': True, 'error_message': "Already liked."}
-            return Response(addProjectlikeResponse)
-            
-        except:
-            newLike = Like(project = projekti, user = user_instance)
-            newLike.save()
-            projekti.like_count = len(Like.objects.filter(project = projekti))
-            projekti.save()
-            
-            notification = Notification(user = projekti.user, action = "project_like_added", action_maker = user_instance, project = projekti, step = None)
-            notification.save()
-            
-            
-            likers = projekti.get_likes()
-            
-    
-     
-            
-            
-            addProjectlikeResponse = {'error': False, 'error_message': '', 'likers': likers}
-            return Response(addProjectlikeResponse)
-            
-
-
-
-
-
-
-
-
-
-
-
-
-@api_view(['DELETE'])
-@renderer_classes((JSONRenderer,))
-def projectlike(request, project_id, like_id):
-
-
-    if(request.method == 'DELETE'):
-
-
-        authorization_ok, user_instance = check_authorization(request)
-    
-        if(not authorization_ok):
-            return Response({'error': True, 'error_message': "Login needed."})
-    
-
-        try:
-            project = Project.objects.get(id=project_id)
-        except:
-            removeProjectlikeResponse = {'error': True, 'error_message': "Authentication error."}
-            return Response(removeProjectlikeResponse)
-        
-    
-    
-        try:
-            liketest = Like.objects.get(id = like_id, user = user_instance)
-            liketest.delete()
-            project.like_count = len(Like.objects.filter(project = project))
-            project.save()
-            
-            try:
-                notification = Notification.objects.get(action = "project_like_added", action_maker = user_instance, project = project)
-                notification.delete()
-            except:
-                pass
-            
-
-            likers = project.get_likes()
-            
-            
-            removeProjectlikeResponse = {'error': False, 'error_message': '', 'likers': likers}
-            return Response(removeProjectlikeResponse)
-            
-        except:
-            removeProjectlikeResponse = {'error': True, 'error_message': "Like not found"}
-            return Response(removeProjectlikeResponse)
 
 
 
